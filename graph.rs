@@ -94,6 +94,7 @@ impl Graph for VectorMatrix {
         self.at(x, y)
     }
     fn set_edge_value(&mut self, x: uint, y: uint, val: int) -> Result<int, ~str> {
+        // TODO: If x, y are not adjacent, return Err().
         self.set(x, y, val)
     }
 }
@@ -120,4 +121,30 @@ fn test_matrix_impl() {
 fn test_matrix_set_bounds() {
     let mut matrix: ~VectorMatrix = Matrix::zero(2,2);
     assert!(matrix.set(2,2,5).is_err());
+}
+
+#[test]
+fn test_graph_neighbors() {
+    let mut graph: ~VectorMatrix = Graph::new(3);
+    assert!(!graph.adjacent(1, 2).ok().unwrap());
+    let mut res = graph.add(0,1,1);
+    assert!(res.is_ok());
+    res = graph.add(0,2,1);
+    assert!(res.is_ok());
+    let neighbors = graph.neighbors(0);
+    assert_eq!(neighbors.len(), 2);
+    assert_eq!(neighbors[0], 1);
+    assert_eq!(neighbors[1], 2);
+}
+
+#[test]
+fn test_graph_adjacent() {
+    let mut graph: ~VectorMatrix = Graph::new(3);
+    assert!(!graph.adjacent(1, 2).ok().unwrap());
+    let mut res = graph.add(0,1,1);
+    assert!(res.is_ok());
+    res = graph.add(0,2,1);
+    assert!(res.is_ok());
+    assert!(graph.adjacent(0,1).ok().unwrap());
+    assert!(graph.adjacent(0,2).ok().unwrap());
 }
