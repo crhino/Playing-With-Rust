@@ -8,6 +8,7 @@
  */
 use std::vec::Vec;
 use std::result::Result;
+#[test]
 use std::io::stdio;
 
 pub trait Graph {
@@ -204,7 +205,13 @@ fn test_graph_DFS() {
     assert!(res.is_ok());
     res = graph.add(3,0,1);
     assert!(res.is_ok());
-
+    fn test_DFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
+        let closure = |_: &VectorMatrix, v: uint| {
+            stdio::println(format!("closure called on vertex {}\n", v));
+            (*vec).push(v);
+        };
+        graph.depth_first_search(closure, 0);
+    }
     let mut dfs_vec = Vec::new();
     test_DFS_closure(graph, &mut dfs_vec);
     let mut correct_vec: Vec<uint> = vec!(0, 2, 4, 3, 1);
@@ -214,13 +221,6 @@ fn test_graph_DFS() {
     }
 }
 
-fn test_DFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
-    let closure = |_: &VectorMatrix, v: uint| {
-        stdio::println(format!("closure called on vertex {}\n", v));
-        (*vec).push(v);
-    };
-    graph.depth_first_search(closure, 0);
-}
 
 /*
  *  Graph:
@@ -249,7 +249,13 @@ fn test_graph_BFS() {
     assert!(res.is_ok());
     res = graph.add(3,0,1);
     assert!(res.is_ok());
-
+    fn test_BFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
+        let closure = |_: &VectorMatrix, v: uint| {
+            stdio::println(format!("closure called on vertex {}\n", v));
+            (*vec).push(v);
+        };
+        graph.breadth_first_search(closure, 0);
+    }
     let mut dfs_vec = Vec::new();
     test_BFS_closure(graph, &mut dfs_vec);
     let mut correct_vec: Vec<uint> = vec!(0, 1, 2, 4, 3);
@@ -259,10 +265,4 @@ fn test_graph_BFS() {
     }
 }
 
-fn test_BFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
-    let closure = |_: &VectorMatrix, v: uint| {
-        stdio::println(format!("closure called on vertex {}\n", v));
-        (*vec).push(v);
-    };
-    graph.breadth_first_search(closure, 0);
-}
+
