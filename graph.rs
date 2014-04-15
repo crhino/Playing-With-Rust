@@ -6,20 +6,21 @@
  *  structures.
  *
  */
-use std::vec;
+use std::vec::Vec;
 use std::result::Result;
 
-trait Graph {
+pub trait Graph {
     fn new(vertices: uint) -> ~Self;
     fn adjacent(&self, x: uint, y: uint) -> Result<bool, ~str>;
-    fn neighbors(&self, x: uint) -> ~[uint];
+    fn neighbors(&self, x: uint) -> Vec<uint>;
     fn add(&mut self, x: uint, y: uint, val: int) -> Result<int, ~str>;
     fn delete(&mut self, x: uint, y: uint) -> Result<int, ~str>;
     fn get_edge_value(&self, x: uint, y: uint) -> Result<int, ~str>;
     fn set_edge_value(&mut self, x: uint, y: uint, val: int) -> Result<int, ~str>;
+    fn depth_first_search(&self, closure: |graph: &Self, v: uint|, start: uint);
 }
 
-trait Matrix {
+pub trait Matrix {
     fn zero(row: uint, col: uint) -> ~Self;
     fn height(&self) -> uint; 
     fn width(&self) -> uint;
@@ -27,15 +28,15 @@ trait Matrix {
     fn set(&mut self, row: uint, col: uint, val: int) -> Result<int, ~str>;
 }
 
-struct VectorMatrix {
-    elements: ~[int], // Elements are stored in row-major order.
+pub struct VectorMatrix {
+    elements: Vec<int>, // Elements are stored in row-major order.
     height: uint,
     width: uint
 }
 
 impl Matrix for VectorMatrix {
     fn zero(row: uint, col: uint) -> ~VectorMatrix {
-        let elem = vec::from_fn(row*col, |_: uint| -> int { 0 });
+        let elem = Vec::from_fn(row*col, |_: uint| -> int { 0 });
         ~VectorMatrix { elements: elem, height: row, width: col }
     }
     fn at(&self, row: uint, col: uint) -> Result<int, ~str> {
@@ -43,7 +44,7 @@ impl Matrix for VectorMatrix {
             Err(format!("({}, {}) is out of bounds, height of matrix is {} and width of matrix is {}.",
                     row, col, self.height, self.width))
         } else {
-            Ok(self.elements[row*self.width + col])
+            Ok(*self.elements.get(row*self.width + col))
         }
     }
     fn set(& mut self, row: uint, col: uint, val: int) -> Result<int, ~str> {
@@ -51,9 +52,7 @@ impl Matrix for VectorMatrix {
             Err(format!("({}, {}) is out of bounds, height of matrix is {} and width of matrix is {}.",
                     row, col, self.height, self.width))
         } else {
-            unsafe {
-                self.elements.unsafe_set(row*self.width+col, val);
-            }
+            *self.elements.get_mut(row*self.width+col) = val;
             Ok(val)
         }
     }
@@ -72,17 +71,16 @@ impl Graph for VectorMatrix {
             Err(err) => Err(err)
         }
     }
-    fn neighbors(&self, x: uint) -> ~[uint] {
+    fn neighbors(&self, x: uint) -> Vec<uint> {
         let row = self.elements.slice(x*self.width, x*self.width+self.width);
-        let build = |push: |v: uint|| {
-            for r in row.iter().enumerate() {
-                let (i, val) = r;
-                if *val != 0 {
-                    push(i)
-                }
+        let mut adj = Vec::new();
+        for r in row.iter().enumerate() {
+            let (i, val) = r;
+            if *val != 0 {
+                adj.push(i)
             }
-        };
-        vec::build(None, build)
+        }
+        return adj
     }
     fn add(&mut self, x: uint, y: uint, val: int) -> Result<int, ~str> {
         self.set(x, y, val)
@@ -97,13 +95,24 @@ impl Graph for VectorMatrix {
         // TODO: If x, y are not adjacent, return Err().
         self.set(x, y, val)
     }
-}
-
-fn main() {
-    let mut matrix: ~VectorMatrix = Matrix::zero(5, 5);
-    matrix.set(1, 1, 5);
-    matrix.set(2,3,-10);
-    println!("{:?}", matrix)
+    // Calls the closure on the vertices in DFS order, passing in the graph as well.
+    fn depth_first_search(&self, closure: |graph: &VectorMatrix, v: uint|, start: uint) {
+        let mut visited = Vec::from_fn(self.width(), |_| 0);
+        let mut stack = Vec::new();
+        stack.push(start);
+        // Continue looping until all vertices are visited.
+        while stack.len() != 0 {
+            let current = stack.pop().unwrap();
+            if *visited.get(current) == 1 {
+                continue;
+            }
+            closure(self, current);
+            *visited.get_mut(current) = 1;
+            for x in self.neighbors(current).iter() {
+                stack.push(*x);
+            }
+        }
+    }
 }
 
 #[test]
@@ -133,8 +142,8 @@ fn test_graph_neighbors() {
     assert!(res.is_ok());
     let neighbors = graph.neighbors(0);
     assert_eq!(neighbors.len(), 2);
-    assert_eq!(neighbors[0], 1);
-    assert_eq!(neighbors[1], 2);
+    assert_eq!(*neighbors.get(0), 1);
+    assert_eq!(*neighbors.get(1), 2);
 }
 
 #[test]
