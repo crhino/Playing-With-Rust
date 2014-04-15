@@ -8,6 +8,7 @@
  */
 use std::vec::Vec;
 use std::result::Result;
+use std::io::stdio;
 
 pub trait Graph {
     fn new(vertices: uint) -> ~Self;
@@ -156,4 +157,49 @@ fn test_graph_adjacent() {
     assert!(res.is_ok());
     assert!(graph.adjacent(0,1).ok().unwrap());
     assert!(graph.adjacent(0,2).ok().unwrap());
+}
+
+/*
+ *  Graph:
+ *  V 0 1 2 3 4
+ *  0 0 1 1 0 0
+ *  1 0 0 0 0 1
+ *  2 0 0 0 1 1
+ *  3 1 0 0 0 0
+ *  4 0 0 0 1 0
+ *
+ */
+#[test]
+fn test_graph_DFS() {
+    let mut graph: ~VectorMatrix = Graph::new(5);
+    let mut res = graph.add(0,1,1);
+    assert!(res.is_ok());
+    res = graph.add(0,2,1);
+    assert!(res.is_ok());
+    res = graph.add(2,3,1);
+    assert!(res.is_ok());
+    res = graph.add(2,4,1);
+    assert!(res.is_ok());
+    res = graph.add(1,4,1);
+    assert!(res.is_ok());
+    res = graph.add(4,3,1);
+    assert!(res.is_ok());
+    res = graph.add(3,0,1);
+    assert!(res.is_ok());
+
+    let mut dfs_vec = Vec::new();
+    test_DFS_closure(graph, &mut dfs_vec);
+    let mut correct_vec: Vec<uint> = vec!(0, 2, 4, 3, 1);
+    let mut zip_iter = dfs_vec.mut_iter().zip(correct_vec.mut_iter());
+    for (&dfs, &cor) in zip_iter {
+        assert_eq!(dfs, cor);
+    }
+}
+
+fn test_DFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
+    let closure = |_: &VectorMatrix, v: uint| {
+        stdio::println(format!("closure called on vertex {}\n", v));
+        (*vec).push(v);
+    };
+    graph.depth_first_search(closure, 0);
 }
