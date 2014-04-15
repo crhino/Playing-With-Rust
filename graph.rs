@@ -11,6 +11,7 @@ extern crate collections;
 use std::vec;
 use std::result::Result;
 use collections::hashmap::HashMap;
+use collections::dlist::Dlist;
 use std::hash;
 
 trait Graph<T> {
@@ -21,6 +22,10 @@ trait Graph<T> {
     fn delete(&mut self, x: &T, y: &T) -> Result<int, ~str>;
     fn get_edge_value(&self, x: &T, y: &T) -> Result<int, ~str>;
     fn set_edge_value(&mut self, x: &T, y: &T, val: int) -> Result<int, ~str>;
+    // Should return an owned vector of type A, with f applied to every
+    // node in DFS order. If f returns Some(x), x is addded to the 
+    // returned vector. start must be in the graph.
+    fn DFS<A>(&self, f: |x: T| -> Option<A>, start: T) -> ~[A];
 }
 
 trait Matrix {
@@ -172,6 +177,19 @@ impl<T: hash::Hash + Eq + std::fmt::Show> Graph<T> for AdjacencyMatrixGraph<T> {
             (_, _) => { }
         }
         self.matrix.set(*(opt_u.unwrap()), *(opt_w.unwrap()), val)
+    }
+    fn DFS<A>(&self, f: |x: T| -> Option<A>, start: &T) -> ~[A] {
+        let stack = Dlist<T>::new();
+        let seen = [0, ..self.size];
+        let all = false;
+        let neighbors = self.neighbors(start);
+        // start is the only parameter to self.neighbors() that can fail.
+        if neighbors.is_err() {
+            fail!(neighbors.err());
+        }
+        while !all {
+            
+        }
     }
 }
 
