@@ -19,6 +19,7 @@ pub trait Graph {
     fn get_edge_value(&self, x: uint, y: uint) -> Result<int, ~str>;
     fn set_edge_value(&mut self, x: uint, y: uint, val: int) -> Result<int, ~str>;
     fn depth_first_search(&self, closure: |graph: &Self, v: uint|, start: uint);
+    fn breadth_first_search(&self, closure: |graph: &Self, v: uint|, start: uint);
 }
 
 pub trait Matrix {
@@ -114,6 +115,23 @@ impl Graph for VectorMatrix {
             }
         }
     }
+    fn breadth_first_search(&self, closure: |graph: &VectorMatrix, v: uint|, start: uint) {
+        let mut visited = Vec::from_fn(self.width(), |_| 0);
+        let mut queue = Vec::new();
+        queue.push(start);
+        // Continue looping until all vertices are visited.
+        while queue.len() != 0 {
+            let current = queue.remove(0).unwrap();
+            if *visited.get(current) == 1 {
+                continue;
+            }
+            closure(self, current);
+            *visited.get_mut(current) = 1;
+            for x in self.neighbors(current).iter() {
+                queue.push(*x);
+            }
+        }
+    }
 }
 
 #[test]
@@ -202,4 +220,49 @@ fn test_DFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
         (*vec).push(v);
     };
     graph.depth_first_search(closure, 0);
+}
+
+/*
+ *  Graph:
+ *  V 0 1 2 3 4
+ *  0 0 1 1 0 0
+ *  1 0 0 0 0 1
+ *  2 0 0 0 1 1
+ *  3 1 0 0 0 0
+ *  4 0 0 0 1 0
+ *
+ */
+#[test]
+fn test_graph_BFS() {
+    let mut graph: ~VectorMatrix = Graph::new(5);
+    let mut res = graph.add(0,1,1);
+    assert!(res.is_ok());
+    res = graph.add(0,2,1);
+    assert!(res.is_ok());
+    res = graph.add(2,3,1);
+    assert!(res.is_ok());
+    res = graph.add(2,4,1);
+    assert!(res.is_ok());
+    res = graph.add(1,4,1);
+    assert!(res.is_ok());
+    res = graph.add(4,3,1);
+    assert!(res.is_ok());
+    res = graph.add(3,0,1);
+    assert!(res.is_ok());
+
+    let mut dfs_vec = Vec::new();
+    test_BFS_closure(graph, &mut dfs_vec);
+    let mut correct_vec: Vec<uint> = vec!(0, 1, 2, 4, 3);
+    let mut zip_iter = dfs_vec.mut_iter().zip(correct_vec.mut_iter());
+    for (&dfs, &cor) in zip_iter {
+        assert_eq!(dfs, cor);
+    }
+}
+
+fn test_BFS_closure(graph: &VectorMatrix, vec: &mut Vec<uint>) {
+    let closure = |_: &VectorMatrix, v: uint| {
+        stdio::println(format!("closure called on vertex {}\n", v));
+        (*vec).push(v);
+    };
+    graph.breadth_first_search(closure, 0);
 }
