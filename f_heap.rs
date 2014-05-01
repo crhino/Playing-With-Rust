@@ -11,26 +11,28 @@ use std::option::Option;
 use std::cell::RefCell;
 
 #[deriving(Clone)]
-struct FibNode<T> {
-    parent: Option<~RefCell<FibNode<T>>>,
-    children: DList<~RefCell<FibNode<T>>>,
+struct FibNode<K, V> {
+    parent: Option<~RefCell<FibNode<K, V>>>,
+    children: DList<~RefCell<FibNode<K, V>>>,
     rank: uint,
     marked: bool,
-    value: T
+    key: K,
+    value: V 
 }
 
-pub struct FHeap<T> {
+pub struct FHeap<K, V> {
     // Minimum node is the first node in the first tree.
-    trees: DList<~RefCell<FibNode<T>>>
+    trees: DList<~RefCell<FibNode<K, V>>>
 }
 
-impl<T: Ord + Clone> FHeap<T> {
-    pub fn new(val: T) -> FHeap<T> {
+impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
+    pub fn new(k: K, val: V) -> FHeap<K, V> {
         let node = FibNode { 
             parent: None,
             children: DList::new(),
             rank: 0,
             marked: false,
+            key: k, 
             value: val
         };
         let rc_node = ~RefCell::new(node);
@@ -40,13 +42,14 @@ impl<T: Ord + Clone> FHeap<T> {
             trees: tree 
         }
     }
-    pub fn insert(&mut self, val: T) {
+    pub fn insert(&mut self, k: K, val: V) {
         let node =
             FibNode {
                 parent: None,
                 children: DList::new(),
                 rank: 0,
                 marked: false,
+                key: k,
                 value: val
             };
         let rc_node = ~RefCell::new(node);
@@ -58,19 +61,21 @@ impl<T: Ord + Clone> FHeap<T> {
             };
         self.meld(singleton);
     }
-    // Returns a copy of the minimum element.
-    pub fn find_min(& self) -> T {
+    // Returns a copy of the minimum key and value.
+    pub fn find_min(& self) -> (K, V) {
         match self.trees.front() {
             Some(n) => {
                 let borrow = n.borrow();
-                borrow.deref().value.clone()
+                let deref = borrow.deref();
+                (deref.key.clone(), deref.value.clone())
             },
             None => fail!("Fibonacci heap is empty")
         }
     }
-    pub fn delete_min(&mut self) -> T {
+    pub fn delete_min(&mut self) -> (K, V) {
         let mut min_tree = self.trees.pop_front().unwrap().unwrap();
         let value = min_tree.value.clone();
+        let key = min_tree.key.clone();
         for n in min_tree.children.mut_iter() {
             let mut mut_borrow = n.borrow_mut();
             mut_borrow.deref_mut().parent = None;
@@ -80,7 +85,7 @@ impl<T: Ord + Clone> FHeap<T> {
         // Explicit closure scope.
         {
             // Closure to find to trees with the same rank.
-            let same_rank = || -> Option<(~RefCell<FibNode<T>>, ~RefCell<FibNode<T>>)> {
+            let same_rank = || -> Option<(~RefCell<FibNode<K,V>>, ~RefCell<FibNode<K,V>>)> {
                 // Only a single tree, no linking step.
                 if self.trees.len() == 1 {
                     return None;
@@ -112,7 +117,7 @@ impl<T: Ord + Clone> FHeap<T> {
         // Find the minimum node and put the tree first.
         let mut min_node = self.trees.pop_front().unwrap();
         for _ in range(0, self.trees.len()) {
-            if self.trees.front().unwrap().borrow().value.lt(&min_node.borrow().value) {
+            if self.trees.front().unwrap().borrow().key.lt(&min_node.borrow().key) {
                 self.trees.push_back(min_node);
                 min_node = self.trees.pop_front().unwrap();
             } else {
@@ -121,10 +126,10 @@ impl<T: Ord + Clone> FHeap<T> {
         }
         self.trees.push_front(min_node);
         // Return the minimum value.
-        value
+        (key, value)
     }
-    pub fn meld(&mut self, other: FHeap<T>) {
-        if self.find_min() <= other.find_min() {
+    pub fn meld(&mut self, other: FHeap<K, V>) {
+        if self.find_min().val0() <= other.find_min().val0() {
             self.trees.append(other.trees);
         } else {
             self.trees.prepend(other.trees);
@@ -149,6 +154,7 @@ fn test_fheap_meld() {
             children: DList::new(),
             rank: 0,
             marked: false,
+            key: 0,
             value: 0 
         };
     let mut new_node = node.clone();
@@ -168,6 +174,7 @@ fn test_fheap_meld() {
             children: DList::new(),
             rank: 0,
             marked: false,
+            key: 3,
             value: 3
         });
      let child2 = 
@@ -176,6 +183,7 @@ fn test_fheap_meld() {
             children: DList::new(),
             rank: 0,
             marked: false,
+            key: 9,
             value: 9
         });
     {
@@ -187,28 +195,28 @@ fn test_fheap_meld() {
     tree.push_front(rc_node);
     let mut fheap = FHeap { trees: tree };
     fheap.meld(singleton);
-    assert_eq!(fheap.find_min(), 0);
+    assert_eq!(fheap.find_min(), (0,0));
 }
 
 #[test]
 fn test_fheap_insert() {
-    let mut fheap = FHeap::new(1);
-    fheap.insert(4);
-    assert_eq!(fheap.find_min(), 1);
-    fheap.insert(0);
-    assert_eq!(fheap.find_min(), 0);
+    let mut fheap = FHeap::new(1, ~"one");
+    fheap.insert(4, ~"four");
+    assert_eq!(fheap.find_min(), (1, ~"one"));
+    fheap.insert(0, ~"zero");
+    assert_eq!(fheap.find_min(), (0, ~"zero"));
 }
 
 #[test]
 fn test_fheap_delete_min() {
-    let mut fheap = FHeap::new(1);
-    fheap.insert(4);
-    fheap.insert(0);
-    fheap.insert(5);
+    let mut fheap = FHeap::new(1, ~"1");
+    fheap.insert(4, ~"4");
+    fheap.insert(0, ~"0");
+    fheap.insert(5, ~"5");
     fheap.delete_min();
-    assert_eq!(fheap.find_min(), 1);
+    assert_eq!(fheap.find_min(), (1, ~"1"));
     assert_eq!(fheap.trees.len(), 2);
-    assert_eq!(fheap.delete_min(), 1);
-    assert_eq!(fheap.find_min(), 4);
+    assert_eq!(fheap.delete_min(), (1, ~"1"));
+    assert_eq!(fheap.find_min(), (4,~"4"));
     assert_eq!(fheap.trees.len(), 1);
 }
