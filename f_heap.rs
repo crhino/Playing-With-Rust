@@ -10,10 +10,12 @@ use collections::deque::Deque;
 use std::option::Option;
 use std::cell::RefCell;
 
+pub type FibEntry<K,V> = RefCell<~FibNode<K,V>>;
+
 #[deriving(Clone)]
 struct FibNode<K, V> {
-    parent: Option<~RefCell<FibNode<K, V>>>,
-    children: DList<~RefCell<FibNode<K, V>>>,
+    parent: Option<FibEntry<K,V>>,
+    children: DList<FibEntry<K,V>>,
     rank: uint,
     marked: bool,
     key: K,
@@ -22,12 +24,12 @@ struct FibNode<K, V> {
 
 pub struct FHeap<K, V> {
     // Minimum node is the first node in the first tree.
-    trees: DList<~RefCell<FibNode<K, V>>>
+    trees: DList<FibEntry<K, V>>
 }
 
 impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
     pub fn new(k: K, val: V) -> FHeap<K, V> {
-        let node = FibNode { 
+        let node = ~FibNode { 
             parent: None,
             children: DList::new(),
             rank: 0,
@@ -35,16 +37,20 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
             key: k, 
             value: val
         };
-        let rc_node = ~RefCell::new(node);
+        let rc_node = RefCell::new(node);
         let mut tree = DList::new();
         tree.push_front(rc_node);
         FHeap { 
             trees: tree 
         }
     }
-    pub fn insert(&mut self, k: K, val: V) {
+    /* In order to ensure O(1) time for delete(node) and decrease_key(node, delta),
+     * we need O(1) access to the element in the heap. Thus, insert returns a pointer
+     * to the Entry.
+     */
+    pub fn insert(&mut self, k: K, val: V) -> FibEntry<K,V> {
         let node =
-            FibNode {
+            ~FibNode {
                 parent: None,
                 children: DList::new(),
                 rank: 0,
@@ -52,7 +58,8 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
                 key: k,
                 value: val
             };
-        let rc_node = ~RefCell::new(node);
+        let rc_node = RefCell::new(node);
+        let ret = rc_node.clone();
         let mut tree = DList::new();
         tree.push_front(rc_node);
         let singleton = 
@@ -60,6 +67,7 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
                 trees: tree
             };
         self.meld(singleton);
+        ret
     }
     // Returns a copy of the minimum key and value.
     pub fn find_min(& self) -> (K, V) {
@@ -85,7 +93,7 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
         // Explicit closure scope.
         {
             // Closure to find to trees with the same rank.
-            let same_rank = || -> Option<(~RefCell<FibNode<K,V>>, ~RefCell<FibNode<K,V>>)> {
+            let same_rank = || -> Option<(FibEntry<K,V>, FibEntry<K,V>)> {
                 // Only a single tree, no linking step.
                 if self.trees.len() == 1 {
                     return None;
@@ -135,7 +143,7 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
             self.trees.prepend(other.trees);
         }
     }
-    //pub fn decrease_key(&self, val: T, delta: uint) -> bool;
+    //pub fn decrease_key(&self, node: FibEntry<K,V>, delta: K) -> bool;
     //pub fn delete(&self, val: T) -> bool;
 }
 
@@ -149,7 +157,7 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
 #[test]
 fn test_fheap_meld() {
     let node =
-        FibNode {
+        ~FibNode {
             parent: None,
             children: DList::new(),
             rank: 0,
@@ -158,7 +166,7 @@ fn test_fheap_meld() {
             value: 0 
         };
     let mut new_node = node.clone();
-    let mut rc_node = ~RefCell::new(node);
+    let mut rc_node = RefCell::new(node);
     let mut tree = DList::new();
     tree.push_front(rc_node);
     let singleton = 
@@ -167,9 +175,9 @@ fn test_fheap_meld() {
         };
     tree = DList::new();
     new_node.value = 1;
-    rc_node = ~RefCell::new(new_node);
+    rc_node = RefCell::new(new_node);
     let child1 = 
-        ~RefCell::new(FibNode {
+        RefCell::new(~FibNode {
             parent: Some(rc_node.clone()),
             children: DList::new(),
             rank: 0,
@@ -178,7 +186,7 @@ fn test_fheap_meld() {
             value: 3
         });
      let child2 = 
-        ~RefCell::new(FibNode {
+        RefCell::new(~FibNode {
             parent: Some(rc_node.clone()),
             children: DList::new(),
             rank: 0,
