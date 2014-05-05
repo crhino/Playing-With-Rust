@@ -27,21 +27,10 @@ pub struct FHeap<K, V> {
     trees: DList<FibEntry<K, V>>
 }
 
-impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
-    pub fn new(k: K, val: V) -> FHeap<K, V> {
-        let node = ~FibNode { 
-            parent: None,
-            children: DList::new(),
-            rank: 0,
-            marked: false,
-            key: k, 
-            value: val
-        };
-        let rc_node = RefCell::new(node);
-        let mut tree = DList::new();
-        tree.push_front(rc_node);
+impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
+    pub fn new() -> FHeap<K, V> {
         FHeap { 
-            trees: tree 
+            trees: DList::new() 
         }
     }
     /* In order to ensure O(1) time for delete(node) and decrease_key(node, delta),
@@ -137,13 +126,39 @@ impl<K: Clone + Ord, V: Clone> FHeap<K, V> {
         (key, value)
     }
     pub fn meld(&mut self, other: FHeap<K, V>) {
-        if self.find_min().val0() <= other.find_min().val0() {
+        if self.trees.is_empty() {
+            self.trees.append(other.trees);
+        } else if self.find_min().val0() <= other.find_min().val0() {
             self.trees.append(other.trees);
         } else {
             self.trees.prepend(other.trees);
         }
     }
-    //pub fn decrease_key(&self, node: FibEntry<K,V>, delta: K) -> bool;
+    pub fn decrease_key(&mut self, node: FibEntry<K,V>, delta: K) {
+        let mut borrow_mut = node.borrow_mut();
+        let deref = borrow_mut.deref_mut();
+        let key = deref.key.clone();
+        deref.key = key - delta;
+        if deref.parent.is_none() {
+            return
+        }
+        let parent = deref.parent.clone().unwrap();
+        let mut parent_borrow = parent.borrow_mut();
+        let parent_deref = parent_borrow.deref_mut();
+        for _ in range(0, parent_deref.children.len()) {
+            if parent_deref.children.front().unwrap().try_borrow().is_none() {
+                // We borrow_mut()'d the node already, thus try_borrow() is None.
+                parent_deref.children.pop_front();
+                break;
+            }
+            parent_deref.children.rotate_backward();
+        }
+        if self.find_min().val0() > deref.key {
+            self.trees.push_back(node.clone());
+        } else {
+            self.trees.push_front(node.clone());
+        }
+    }
     //pub fn delete(&self, val: T) -> bool;
 }
 
@@ -208,7 +223,8 @@ fn test_fheap_meld() {
 
 #[test]
 fn test_fheap_insert() {
-    let mut fheap = FHeap::new(1, ~"one");
+    let mut fheap = FHeap::new();
+    fheap.insert(1, ~"one");
     fheap.insert(4, ~"four");
     assert_eq!(fheap.find_min(), (1, ~"one"));
     fheap.insert(0, ~"zero");
@@ -217,7 +233,8 @@ fn test_fheap_insert() {
 
 #[test]
 fn test_fheap_delete_min() {
-    let mut fheap = FHeap::new(1, ~"1");
+    let mut fheap = FHeap::new();
+    fheap.insert(1, ~"1");
     fheap.insert(4, ~"4");
     fheap.insert(0, ~"0");
     fheap.insert(5, ~"5");
@@ -227,4 +244,22 @@ fn test_fheap_delete_min() {
     assert_eq!(fheap.delete_min(), (1, ~"1"));
     assert_eq!(fheap.find_min(), (4,~"4"));
     assert_eq!(fheap.trees.len(), 1);
+}
+
+#[test]
+fn test_fheap_decrease_key() {
+    let mut fheap = FHeap::new();
+    fheap.insert(1, ~"1");
+    let four = fheap.insert(4, ~"4");
+    fheap.insert(0, ~"0");
+    let five = fheap.insert(5, ~"5");
+    fheap.delete_min();
+    fheap.decrease_key(four.clone(), 2);
+    let borrow = four.borrow();
+    let deref = borrow.deref();
+    assert_eq!(deref.key, 2);
+    assert!(deref.parent.is_none());
+    assert_eq!(fheap.trees.len(), 3);
+    fheap.decrease_key(five, 5);
+    assert_eq!(fheap.find_min(), (0, ~"five"))
 }
