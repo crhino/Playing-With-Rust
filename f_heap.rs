@@ -67,6 +67,25 @@ impl<K,V> FibNode<K,V> {
     }
 }
 
+// Private methods on FHeap.
+impl<K: Clone,V: Clone> FHeap<K,V> {
+    fn remove_child_none_hack(&mut self, node: FibEntry<K,V>) {
+        let mut borrow_mut = node.borrow_mut();
+        let deref_mut = borrow_mut.deref_mut();
+        deref_mut.remove_child_none_hack();
+        if deref_mut.parent.is_some() {
+            if deref_mut.marked {
+                self.cascading_cut(deref_mut);
+            } else {
+                deref_mut.marked = true;
+            }
+        }
+    }
+    fn cascading_cut(&mut self, node: &mut ~FibNode<K,V>) {
+        self.remove_child_none_hack(node.parent.clone().unwrap())
+    }
+}
+
 impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
     pub fn new() -> FHeap<K, V> {
         FHeap { 
@@ -181,9 +200,7 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
             return
         }
         let parent = deref.parent.clone().unwrap();
-        let mut parent_borrow = parent.borrow_mut();
-        let parent_deref = parent_borrow.deref_mut();
-        parent_deref.remove_child_none_hack();
+        self.remove_child_none_hack(parent);
         if self.find_min().val0() > deref.key {
             self.trees.push_back(node.clone());
         } else {
@@ -205,8 +222,7 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
             let value = node.value();
             let mut borrow_mut = node.borrow_mut();
             let deref_mut = borrow_mut.deref_mut();
-            deref_mut.parent.clone().unwrap().borrow_mut()
-                .deref_mut().remove_child_none_hack();
+            self.remove_child_none_hack(deref_mut.parent.clone().unwrap());
             self.trees.append(deref_mut.children.clone());
             (key, value)
         }
@@ -325,4 +341,27 @@ fn test_fheap_delete() {
     fheap.delete(one);
     assert_eq!(fheap.trees.len(), 1);
     assert_eq!(fheap.find_min(), (5, ~"five"))
+}
+
+#[test]
+fn test_fheap_cascading_cut() {
+    let mut fheap = FHeap::new();
+    fheap.insert(1, "1");
+    fheap.insert(4, "4");
+    fheap.insert(0, "0");
+    fheap.insert(5, "5");
+    fheap.insert(2, "2");
+    fheap.insert(3, "3");
+    let h6 = fheap.insert(6, "6");
+    let h7 = fheap.insert(7, "7");
+    fheap.insert(18, "18");
+    fheap.insert(9, "9");
+    fheap.insert(11, "11");
+    fheap.insert(15, "15");
+    fheap.delete_min();
+    assert_eq!(fheap.find_min(), (1, "1"));
+    assert_eq!(fheap.trees.len(), 3);
+    fheap.decrease_key(h6.clone(), 2);
+    fheap.decrease_key(h7.clone(), 1);
+    assert_eq!(fheap.trees.len(), 6);
 }
