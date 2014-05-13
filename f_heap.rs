@@ -8,14 +8,16 @@ extern crate collections = "collections#0.11-pre";
 use collections::dlist::DList;
 use collections::deque::Deque;
 use std::option::Option;
-use std::cell::RefCell;
+use std::cast;
 
-pub type FibEntry<K,V> = RefCell<~FibNode<K,V>>;
+pub type FibEntry<K,V> = *mut FibNode<K,V>;
 trait HeapEntry<K, V> {
     fn key(&self) -> K;
     fn value(&self) -> V;
     fn mark(&self) -> bool;
     fn parent(&self) -> Option<Self>;
+    fn rank(&self) -> uint;
+    fn link(&self, child: Self);
 }
 
 #[deriving(Clone)]
@@ -33,34 +35,43 @@ pub struct FHeap<K, V> {
 }
 
 // Private Methods on FibEntry.
-impl<K: Clone, V: Clone> HeapEntry<K,V> for FibEntry<K,V> {
+impl<K: std::fmt::Show+Eq+Clone, V: Clone> HeapEntry<K,V> for FibEntry<K,V> {
     fn key(&self) -> K {
-        self.borrow().deref().key.clone()
+        unsafe { (**self).key.clone() }
     }
     fn value(&self) -> V {
-        self.borrow().deref().value.clone()
+        unsafe { (**self).value.clone() }
     }
     fn mark(&self) -> bool {
-        self.borrow().deref().marked
+        unsafe { (**self).marked }
     }
     fn parent(&self) -> Option<FibEntry<K,V>> {
-        self.borrow().deref().parent.clone()
+        unsafe { (**self).parent.clone() }
+    }
+    fn rank(&self) -> uint {
+        unsafe { (**self).rank() }
+    }
+    fn link(&self, child: FibEntry<K,V>) {
+        unsafe { 
+            (*child).marked = false;
+            (*child).parent = Some(*self);
+            (**self).children.push_back(child);
+        }
     }
 }
 
 // Private Methods on Node values.
-impl<K,V> FibNode<K,V> {
-    // Hack that relies on the fact that the child has
-    // already been mutably borrowed, and thus try_borrow()
-    // returns None.
-    fn remove_child_none_hack(&mut self) {
+impl<K: std::fmt::Show+Eq+Clone ,V: Clone> FibNode<K,V> {
+    fn remove_child(&mut self, key: K) {
         for _ in range(0, self.children.len()) {
-            if self.children.front().unwrap().try_borrow().is_none() {
+            print!("Child key: {}\n", self.children.front().unwrap().key());
+            if self.children.front().unwrap().key().eq(&key) {
                 self.children.pop_front();
-                break;
+                return;
             }
             self.children.rotate_backward();
         }
+        fail!("Failed to remove child with key: {}\n", key);
     }
     fn rank(&self) -> uint {
         self.children.len()
@@ -68,25 +79,53 @@ impl<K,V> FibNode<K,V> {
 }
 
 // Private methods on FHeap.
-impl<K: Clone,V: Clone> FHeap<K,V> {
-    fn remove_child_none_hack(&mut self, node: FibEntry<K,V>) {
-        let mut borrow_mut = node.borrow_mut();
-        let deref_mut = borrow_mut.deref_mut();
-        deref_mut.remove_child_none_hack();
-        if deref_mut.parent.is_some() {
-            if deref_mut.marked {
-                self.cascading_cut(deref_mut);
+impl<K: std::fmt::Show+Eq+Clone,V: Clone> FHeap<K,V> {
+    fn remove_child(&mut self, node: FibEntry<K,V>, key: K) {
+        print!("FHeap.remove_child({}, {})\n", node, key);
+        unsafe { (*node).remove_child(key); }
+        if node.parent().is_some() {
+            if node.mark() {
+                print!("start cascading cut\n");
+                self.cascading_cut(node);
             } else {
-                deref_mut.marked = true;
+                print!("first removed node, mark node\n");
+                unsafe { (*node).marked = true; }
             }
         }
     }
-    fn cascading_cut(&mut self, node: &mut ~FibNode<K,V>) {
-        self.remove_child_none_hack(node.parent.clone().unwrap())
+    fn cascading_cut(&mut self, node: FibEntry<K,V>) {
+        self.remove_child(node.parent().unwrap(), node.key());
+        self.trees.push_back(node)
     }
+    fn same_rank(&mut self) -> Option<(FibEntry<K,V>, FibEntry<K,V>)> {
+        // Only a single tree, no linking step.
+        if self.trees.len() == 1 {
+            return None;
+        }
+        print!("Looking for roots of same rank\n");
+        let mut same = false;
+        for i in range(0, self.trees.len()) {
+            print!("On {}th iteration of self.trees loop\n", i);
+            {
+                let front = self.trees.front().unwrap();
+                let back = self.trees.back().unwrap();
+                if front.rank() == back.rank() {
+                    same = true;   
+                }
+            }
+            if same {
+                return Some((self.trees.pop_front().unwrap(), 
+                             self.trees.pop_back().unwrap()));
+            }
+            self.trees.rotate_backward();
+            print!("End of {}th iteration\n", i);
+        }
+        return None;
+    }
+
 }
 
-impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
+impl<K: Clone + Sub<K,K> + Ord + std::fmt::Show, V: Clone> FHeap<K, V> {
     pub fn new() -> FHeap<K, V> {
         FHeap { 
             trees: DList::new() 
@@ -105,10 +144,10 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
                 key: k,
                 value: val
             };
-        let rc_node = RefCell::new(node);
-        let ret = rc_node.clone();
+        let ptr: *mut FibNode<K,V> = unsafe { cast::transmute(node) };
+        let ret = ptr.clone();
         let mut tree = DList::new();
-        tree.push_front(rc_node);
+        tree.push_front(ptr);
         let singleton = 
             FHeap { 
                 trees: tree
@@ -120,58 +159,52 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
     pub fn find_min(& self) -> (K, V) {
         match self.trees.front() {
             Some(n) => {
-                let borrow = n.borrow();
-                let deref = borrow.deref();
-                (deref.key.clone(), deref.value.clone())
+                (n.key(), n.value())
             },
             None => fail!("Fibonacci heap is empty")
         }
     }
     pub fn delete_min(&mut self) -> (K, V) {
-        let mut min_tree = self.trees.pop_front().unwrap().unwrap();
-        let value = min_tree.value.clone();
-        let key = min_tree.key.clone();
-        for n in min_tree.children.mut_iter() {
-            let mut mut_borrow = n.borrow_mut();
-            mut_borrow.deref_mut().parent = None;
+        let min_tree = self.trees.pop_front().unwrap();
+        let value = min_tree.value();
+        let key = min_tree.key();
+        print!("Setting parent of children to None\n");
+        unsafe {
+            for n in (*min_tree).children.mut_iter() {
+                (**n).parent = None;
+            }
+            print!("Appending children to root list\n");
+            self.trees.append((*min_tree).children.clone());
         }
-        self.trees.append(min_tree.children);
-
+        //let mut dlist = DList::new();
         // Explicit closure scope.
         {
             // Closure to find to trees with the same rank.
-            let same_rank = || -> Option<(FibEntry<K,V>, FibEntry<K,V>)> {
-                // Only a single tree, no linking step.
-                if self.trees.len() == 1 {
-                    return None;
-                }
-                for _ in range(0, self.trees.len()) {
-                    let front = self.trees.front().unwrap().borrow();
-                    let back = self.trees.back().unwrap().borrow();
-                    if front.rank() == back.rank() {
-                        return Some((self.trees.pop_front().unwrap(), 
-                                     self.trees.pop_back().unwrap()));
-                    }
-                    self.trees.rotate_backward();
-                }
-                return None;
-            };
-            let mut link = same_rank();
+            let mut link = self.same_rank();
             while link.is_some() {
+                print!("merging roots of same rank\n");
                 let (a, b) = link.unwrap();
-                let mut tree = a.borrow_mut();
-                {
-                    let mut b_mut = b.borrow_mut();
-                    b_mut.marked = false;
+                if a.key().lt(&b.key()) {
+                    print!("less: {} more: {}\n", a.key(), b.key());
+                    a.link(b);
+                    self.trees.push_front(a);
+                } else {
+                    print!("less: {} more: {}\n", b.key(), a.key());
+                    b.link(a);
+                    self.trees.push_front(b);
                 }
-                tree.deref_mut().children.push_front(b);
-                link = same_rank();
+                link = self.same_rank();
             }
         }
+        // Append all newly formed roots to list of roots.
+        //self.trees.append(dlist);
         // Find the minimum node and put the tree first.
+        print!("Finding minimum node and putting at front\n");
         let mut min_node = self.trees.pop_front().unwrap();
+        print!("min node: {}, self.trees.len(): {}\n", min_node.key(), self.trees.len());
         for _ in range(0, self.trees.len()) {
-            if self.trees.front().unwrap().borrow().key.lt(&min_node.borrow().key) {
+            print!("min_node: {} tree.front: {}\n", min_node.key(), self.trees.front().unwrap().key());
+            if self.trees.front().unwrap().key().lt(&min_node.key()) {
                 self.trees.push_back(min_node);
                 min_node = self.trees.pop_front().unwrap();
             } else {
@@ -179,7 +212,8 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
             }
         }
         self.trees.push_front(min_node);
-        // Return the minimum value.
+        // Drop ptr and return the minimum value.
+        unsafe { drop(cast::transmute::<_, ~FibNode<K,V>>(min_tree)); }
         (key, value)
     }
     pub fn meld(&mut self, other: FHeap<K, V>) {
@@ -192,16 +226,16 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
         }
     }
     pub fn decrease_key(&mut self, node: FibEntry<K,V>, delta: K) {
-        let mut borrow_mut = node.borrow_mut();
-        let deref = borrow_mut.deref_mut();
-        let key = deref.key.clone();
-        deref.key = key - delta;
-        if deref.parent.is_none() {
+        unsafe { (*node).key = (*node).key - delta; }
+        if node.parent().is_none() {
+            print!("node: {} has no parent\n", node.key());
             return
         }
-        let parent = deref.parent.clone().unwrap();
-        self.remove_child_none_hack(parent);
-        if self.find_min().val0() > deref.key {
+        print!("parent is Some\n");
+        print!("parent: {}\n", node.parent());
+        let parent = node.parent().unwrap();
+        self.remove_child(parent, node.key());
+        if self.find_min().val0().lt(&node.key()) {
             self.trees.push_back(node.clone());
         } else {
             self.trees.push_front(node.clone());
@@ -212,18 +246,27 @@ impl<K: Clone + Sub<K,K> + Ord, V: Clone> FHeap<K, V> {
             return self.delete_min()
         } else if node.parent().is_none() {
             let key = node.key();
+            for _ in range(0, self.trees.len()) {
+                if self.trees.front().unwrap().key().eq(&key) {
+                    self.trees.pop_front();
+                    break;
+                }
+                self.trees.rotate_backward();
+            }
             let value = node.value();
-            let borrow = node.borrow();
-            let deref = borrow.deref();
-            self.trees.append(deref.children.clone());
+            unsafe {
+                self.trees.append((*node).children.clone());
+                drop(cast::transmute::<_, ~FibNode<K,V>>(node));
+            }
             (key, value)
         } else {
             let key = node.key();
             let value = node.value();
-            let mut borrow_mut = node.borrow_mut();
-            let deref_mut = borrow_mut.deref_mut();
-            self.remove_child_none_hack(deref_mut.parent.clone().unwrap());
-            self.trees.append(deref_mut.children.clone());
+            self.remove_child(node.parent().unwrap(), node.key());
+            unsafe {
+                self.trees.append((*node).children.clone());
+                drop(cast::transmute::<_, ~FibNode<K,V>>(node));
+            }
             (key, value)
         }
     }
@@ -246,42 +289,46 @@ fn test_fheap_meld() {
             key: 0,
             value: 0 
         };
-    let mut new_node = node.clone();
-    let mut rc_node = RefCell::new(node);
+    let new_node = ~FibNode {
+            parent: None,
+            children: DList::new(),
+            marked: false,
+            key: 1,
+            value: 1 
+        };
+    unsafe {
+    let mut ptr = cast::transmute(node);
     let mut tree = DList::new();
-    tree.push_front(rc_node);
+    tree.push_front(ptr);
     let singleton = 
         FHeap { 
             trees: tree
         };
     tree = DList::new();
-    new_node.value = 1;
-    rc_node = RefCell::new(new_node);
+    ptr = cast::transmute(new_node);
     let child1 = 
-        RefCell::new(~FibNode {
-            parent: Some(rc_node.clone()),
+        cast::transmute(~FibNode {
+            parent: Some(ptr.clone()),
             children: DList::new(),
             marked: false,
             key: 3,
             value: 3
         });
      let child2 = 
-        RefCell::new(~FibNode {
-            parent: Some(rc_node.clone()),
+        cast::transmute(~FibNode {
+            parent: Some(ptr.clone()),
             children: DList::new(),
             marked: false,
             key: 9,
             value: 9
         });
-    {
-        let mut node_mut = rc_node.borrow_mut();
-        node_mut.deref_mut().children.push_front(child1);
-        node_mut.deref_mut().children.push_front(child2);
-    }
-    tree.push_front(rc_node);
+    (*ptr).children.push_front(child1);
+    (*ptr).children.push_front(child2);
+    tree.push_front(ptr);
     let mut fheap = FHeap { trees: tree };
     fheap.meld(singleton);
     assert_eq!(fheap.find_min(), (0,0));
+    }
 }
 
 #[test]
@@ -301,6 +348,7 @@ fn test_fheap_delete_min() {
     fheap.insert(4, ~"4");
     fheap.insert(0, ~"0");
     fheap.insert(5, ~"5");
+    assert_eq!(fheap.trees.len(), 4);
     fheap.delete_min();
     assert_eq!(fheap.find_min(), (1, ~"1"));
     assert_eq!(fheap.trees.len(), 2);
@@ -317,14 +365,13 @@ fn test_fheap_decrease_key() {
     fheap.insert(0, ~"0");
     let five = fheap.insert(5, ~"5");
     fheap.delete_min();
-    fheap.decrease_key(four.clone(), 2);
-    let borrow = four.borrow();
-    let deref = borrow.deref();
-    assert_eq!(deref.key, 2);
-    assert!(deref.parent.is_none());
-    assert_eq!(fheap.trees.len(), 3);
+    fheap.decrease_key(four, 2);
+    assert_eq!(four.key(), 2);
+    assert!(four.parent().is_none());
+    assert_eq!(fheap.trees.len(), 2);
     fheap.decrease_key(five, 5);
-    assert_eq!(fheap.find_min(), (0, ~"five"))
+    assert_eq!(fheap.trees.len(), 3);
+    assert_eq!(fheap.find_min(), (0, ~"5"))
 }
 
 #[test]
@@ -340,7 +387,7 @@ fn test_fheap_delete() {
     assert_eq!(fheap.trees.len(), 1);
     fheap.delete(one);
     assert_eq!(fheap.trees.len(), 1);
-    assert_eq!(fheap.find_min(), (5, ~"five"))
+    assert_eq!(fheap.find_min(), (5, ~"5"))
 }
 
 #[test]
@@ -351,9 +398,9 @@ fn test_fheap_cascading_cut() {
     fheap.insert(0, "0");
     fheap.insert(5, "5");
     fheap.insert(2, "2");
-    fheap.insert(3, "3");
+    let h3 = fheap.insert(3, "3");
     let h6 = fheap.insert(6, "6");
-    let h7 = fheap.insert(7, "7");
+    fheap.insert(7, "7");
     fheap.insert(18, "18");
     fheap.insert(9, "9");
     fheap.insert(11, "11");
@@ -361,7 +408,7 @@ fn test_fheap_cascading_cut() {
     fheap.delete_min();
     assert_eq!(fheap.find_min(), (1, "1"));
     assert_eq!(fheap.trees.len(), 3);
-    fheap.decrease_key(h6.clone(), 2);
-    fheap.decrease_key(h7.clone(), 1);
+    fheap.decrease_key(h6, 2);
+    fheap.decrease_key(h3, 3);
     assert_eq!(fheap.trees.len(), 6);
 }
